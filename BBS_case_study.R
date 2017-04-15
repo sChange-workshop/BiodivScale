@@ -199,6 +199,7 @@ BBS_biodiversity$cYEAR <- BBS_biodiversity$YEAR - 1992
 
 ##	first nested df
 BBS_nest <- BBS_biodiversity %>%
+	# only fit models to resolutions < 10 (discard smaller grids)
 	filter(resolution < 11) %>%
 	group_by(resolution, cell) %>%                                          
 	nest()
@@ -268,6 +269,7 @@ gls_slopes <- gls_slopes %>%
 			ifelse(resolution==10, round(863.80061), NA)))))))
 
 ##	first look...
+#png('BBS_case_study.png', width=600, height=600)
 ggplot(gls_slopes, aes(x=scale, y=slope)) +
 	# allow scales to vary as N was modelled on log-scale
 	facet_wrap(~model_id, scales='free') +
@@ -276,11 +278,11 @@ ggplot(gls_slopes, aes(x=scale, y=slope)) +
 	geom_hline(yintercept=0, lty=2) +
 	# gam to see if we are likely to recover hump-shaped prediction?
 	stat_smooth(method='gam', se=F, formula = y ~ s(x, bs='cr', k=4)) +
-	# or 2nd-order polynomial on quartiles (as per one of Patrick's other plots)... 
-	stat_quantile(formula = y ~ poly(x, 2), lty=2, quantiles=c(0.25, 0.75)) +
+	# or 2nd-order polynomial on 25% and 75% quartiles (as per one of Patrick's other plots)... 
+	stat_quantile(formula = y ~ poly(x, 2), lty=2, quantiles=c(0.25, 0.5, 0.75)) +
 	xlab('Scale (km2)') +
 	theme_bw()
-	
+#dev.off()	
 
 ggplot(gls_slopes, aes(x=scale, y=std.error)) +
 	# allow scales to vary as N was modelled on log-scale
