@@ -7,12 +7,15 @@ library(dggridR)
 library(dplyr)
 library(readr)
 library(tidyr)
+library(tibble)
 library(ggplot2)
 library(scales)
 library(vegan)
 library(iNEXT)
 library(nlme)
 library(purrr)
+library(broom)
+library(geosphere)
 
 ##	local path (add your own as appropriate...) to the dropbox data
 path <- '~/Dropbox/BioTIMELatest/'
@@ -125,6 +128,11 @@ BBS_multi <- BBS_multi %>%
 	mutate(Abundance = sum.allrawdata.ABUNDANCE) %>%
 	select(-sum.allrawdata.ABUNDANCE, -sum.allrawdata.BIOMASS)
 
+##	retain unique coordinates in each cell (at each resolution) to
+##	recalculate extent later
+uniq_coords <- BBS_multi %>%
+	distinct(resolution, cell, LATITUDE, LONGITUDE)
+	
 ##	collate Species within the new cells 
 BBS_multi <- BBS_multi %>%
 	group_by(REALM, CLIMATE, TAXA, resolution, YEAR, cell, Species) %>%
@@ -214,8 +222,8 @@ model_list <- list(
 
 
 ##	check with one time series
-tmp_data <- BBS_nest %>% filter(resolution==0 & cell==2)
-S_gls(unnest(tmp_data))	# ok
+#tmp_data <- BBS_nest %>% filter(resolution==0 & cell==2)
+#S_gls(unnest(tmp_data))	# ok
 
 fn_model <- function(.model, df){
   # possibly replaces errors with a default value (here set to be NULL)
@@ -255,7 +263,7 @@ gls_slopes <- gls_model_params %>%
 	# drop the intercept term
 	dplyr::select(model_id, resolution, cell, slope, std.error, statistic, p.value) 
 
-
+##======================================================================
 ##	add a better scale covariate for plotting
 gls_slopes %>% distinct(resolution)
 gls_slopes <- gls_slopes %>%
@@ -268,6 +276,57 @@ gls_slopes <- gls_slopes %>%
 			ifelse(resolution==8, round(7774.20548),
 			ifelse(resolution==10, round(863.80061), NA)))))))
 
+##======================================================================
+##	calculate cell_extent = area in convex hull (polygon) of unique locations within each cell. 
+##	This might be a better (or at least more accurate) 'scale' covariate for modelling?
+coords_nest <- uniq_coords %>%
+	##	~ 50% of resolution-cell combinations have only one location; maybe this will not work as 
+	##	an extent (scale) covariate? We would have to throw out these data or set extent == 0?
+	group_by(resolution, cell) %>%
+	mutate(n_locations = n_distinct(LONGITUDE,LATITUDE)) %>%
+	ungroup() %>%
+	##	drop resolution-cell combinations with only one location
+	filter(n_locations > 1) %>%
+	##	drop our location counter
+	select(-n_locations) %>%
+	##	group & nest 
+	group_by(resolution, cell) %>%
+	nest()
+
+##	i can't get purrr::map and chull to play nice so a loop it is! This takes awhile....
+cell_extent <- numeric()
+centre_cell_x <- numeric()
+centre_cell_y <- numeric()
+vertices_check <- data.frame()
+for(i in 1:nrow(coords_nest)){
+	##	sanity check
+    print(paste(i, 'out of', nrow(coords_nest)))
+    ##	put a convex hull around the coords  
+	hull = chull(x=unlist(coords_nest$data[[i]][,'LONGITUDE']), y=unlist(coords_nest $data[[i]][,'LATITUDE']))	
+	##	get the vertices of the convex hull
+	vertices = coords_nest$data[[i]][hull,c('LONGITUDE', 'LATITUDE')]
+	##	put some metadata together for checking later
+	info = cbind.data.frame(resolution=rep(coords_nest$resolution[i], times=nrow(vertices)), cell=rep(coords_nest$cell[i], times=nrow(vertices)), vertices)
+	vertices_check = rbind.data.frame(vertices_check, info)	# this could be used to check all these convex hulls
+	##	calculate the extent and centres (NB cell_extent==0 if there are only two points)
+	cell_extent[i] = areaPolygon(data.frame(x=vertices$LONGITUDE, y=vertices$LATITUDE))	# km2
+	centre_cell_x[i] = geomean(cbind(x=vertices$LONGITUDE, y=vertices$LATITUDE))[1]
+	centre_cell_y[i] = geomean(cbind(x=vertices$LONGITUDE, y=vertices$LATITUDE))[2]
+}
+
+##	combine resolution, cell information with the new cell_extent, and geographic centres
+cell_centre <- cbind.data.frame(coords_nest[,1:2], cell_extent, cell_x=centre_cell_x, cell_y=centre_cell_y)		
+cell_centre <- as_tibble(cell_centre)
+hist(log10(cell_centre$cell_extent*1e-6))	# to km2
+
+##	combine with gls_slopes
+cell_centre <- cell_centre %>% 
+	unite(res_cell, resolution, cell)
+gls_slopes <- gls_slopes %>%
+	unite(res_cell, resolution, cell, remove=FALSE)
+	
+gls_slopes_extent <- inner_join(cell_centre, gls_slopes, by='res_cell')	%>% as_tibble()
+##======================================================================
 ##	first look...
 #png('BBS_case_study.png', width=600, height=600)
 ggplot(gls_slopes, aes(x=scale, y=slope)) +
@@ -294,5 +353,22 @@ ggplot(gls_slopes, aes(x=scale, y=std.error)) +
 	stat_smooth(method='gam', se=F, formula = y ~ s(x, bs='cr', k=4)) +
 	# or 2nd-order polynomial on quartiles (as per one of Patrick's other plots)... 
 	stat_quantile(formula = y ~ poly(x, 2), lty=2, quantiles=c(0.25, 0.75)) +
+	xlab('Scale (km2)') +
+	theme_bw()
+
+##	what about the new extent? The zero extents are cells with only two
+##	unique locations (area of a straight line = 0), 
+
+##	min (>0) and max values look to be have lots of influence on these models?
+ggplot(filter(gls_slopes_extent, model_id=='S_gls' & cell_extent>0), aes(x=cell_extent*1e-6, y=slope)) +
+	# allow scales to vary as N was modelled on log-scale
+#	facet_wrap(~model_id, scales='free') +
+	geom_point() +
+	scale_x_log10() +
+	geom_hline(yintercept=0, lty=2) +
+	# gam to see if we are likely to recover hump-shaped prediction?
+	stat_smooth(method='gam', se=F, formula = y ~ s(x, bs='cr', k=4)) +
+	# or 2nd-order polynomial on 25% and 75% quartiles (as per one of Patrick's other plots)... 
+	stat_quantile(formula = y ~ poly(x, 2), lty=2, quantiles=c(0.25, 0.5, 0.75)) +
 	xlab('Scale (km2)') +
 	theme_bw()
