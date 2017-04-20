@@ -115,13 +115,15 @@ BBS_multi <- bind_rows(BBS_0, BBS_2, BBS_4, BBS_6, BBS_8, BBS_10, BBS_12, BBS_14
 ##	what are the cell counts?	
 check_cells <- BBS_multi %>% group_by(resolution, YEAR) %>% summarise(N_cell = n_distinct(cell))	
 ##	looks like there is very little gained by going smaller than res=10...perhaps 12?
+
+#png('cells_per_year_per_scale.png', width=600, height=600)
 ggplot(check_cells) +
 	facet_wrap(~resolution, nrow=3) + 
 	geom_point(aes(x=YEAR, y= N_cell), alpha=0.5, colour='grey') +
 	stat_smooth(method='lm', aes(x=YEAR, y= N_cell), lwd=0.1, alpha=0.25, se=F) +
 #	scale_y_log10() +
 	theme_bw()
-
+dev.off()
 ##======================================================================
 ##	rename abundance column 
 BBS_multi <- BBS_multi %>%
@@ -143,7 +145,7 @@ BBS_multi <- BBS_multi %>%
 ##	time series of species richness within cells
 checkS <- BBS_multi %>% group_by(resolution, YEAR, cell) %>% summarise(N_spp = n_distinct(Species))
 
-ggplot(filter(checkS, resolution < 11 )) +
+ggplot(filter(checkS, resolution < 13 )) +
 	facet_wrap(~resolution, nrow=3, scales='free') + 
 	geom_point(aes(x=YEAR, y=N_spp), alpha=0.5, colour='grey') +
 	stat_smooth(method='lm', aes(x=YEAR, y=N_spp, group=cell), lwd=0.1, alpha=0.25, se=F) +
@@ -207,8 +209,8 @@ BBS_biodiversity$cYEAR <- BBS_biodiversity$YEAR - 1992
 
 ##	first nested df
 BBS_nest <- BBS_biodiversity %>%
-	# only fit models to resolutions < 10 (discard smaller grids)
-	filter(resolution < 11) %>%
+	# only fit models to resolutions < 14 (discard smaller grids)
+	filter(resolution < 13) %>%
 	group_by(resolution, cell) %>%                                          
 	nest()
 
@@ -269,12 +271,12 @@ gls_slopes %>% distinct(resolution)
 gls_slopes <- gls_slopes %>%
 	mutate(
 		# values for each resolution came from https://cran.r-project.org/web/packages/dggridR/vignettes/dggridR.html 
-		scale = ifelse(resolution==0, round(51006562.17241),
-			ifelse(resolution==2, round(5667395.79693),
-			ifelse(resolution==4, round(629710.64410),
-			ifelse(resolution==6, round(69967.84934),
-			ifelse(resolution==8, round(7774.20548),
-			ifelse(resolution==10, round(863.80061), NA)))))))
+		scale = ifelse(resolution==0, dggetres(dgg0)$AreaKm[1],
+			ifelse(resolution==2, dggetres(dgg2)$AreaKm[3],
+			ifelse(resolution==4, dggetres(dgg4)$AreaKm[5],
+			ifelse(resolution==6, dggetres(dgg6)$AreaKm[7],
+			ifelse(resolution==8, dggetres(dgg8)$AreaKm[9],
+			ifelse(resolution==10, dggetres(dgg10)$AreaKm[11], dggetres(dgg12)$AreaKm[13])))))))
 
 ##======================================================================
 ##	calculate cell_extent = area in convex hull (polygon) of unique locations within each cell. 
@@ -328,8 +330,8 @@ gls_slopes <- gls_slopes %>%
 gls_slopes_extent <- inner_join(cell_centre, gls_slopes, by='res_cell')	%>% as_tibble()
 ##======================================================================
 ##	first look...
-#png('BBS_case_study.png', width=600, height=600)
-ggplot(gls_slopes, aes(x=scale, y=slope)) +
+#png('BBS_case_study_Sonly.png', width=600, height=600)
+ggplot(filter(gls_slopes, model_id=='S_gls'), aes(x=scale, y=slope)) +
 	# allow scales to vary as N was modelled on log-scale
 	facet_wrap(~model_id, scales='free') +
 	geom_point() +
