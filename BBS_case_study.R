@@ -4,10 +4,8 @@
 rm(list=ls())
 ##	
 library(dggridR)
-library(dplyr)
-library(readr)
-library(tidyr)
-library(tibble)
+library(rgdal)
+library(tidyverse)
 library(ggplot2)
 library(scales)
 library(vegan)
@@ -280,7 +278,8 @@ gls_slopes <- gls_slopes %>%
 
 ##======================================================================
 ##	calculate cell_extent = area in convex hull (polygon) of unique locations within each cell. 
-##	This might be a better (or at least more accurate) 'scale' covariate for modelling?
+##	and centre of each cell: we can use the cell centres for a distance matrix to include 
+##	spatial autocorrelation in the second-stage model 
 coords_nest <- uniq_coords %>%
 	##	~ 50% of resolution-cell combinations have only one location; maybe this will not work as 
 	##	an extent (scale) covariate? We would have to throw out these data or set extent == 0?
@@ -345,6 +344,7 @@ ggplot(filter(gls_slopes, model_id=='S_gls'), aes(x=scale, y=slope)) +
 	theme_bw()
 #dev.off()	
 
+##	what about uncertainty in the slope estimate as a function of scale?
 ggplot(gls_slopes, aes(x=scale, y=std.error)) +
 	# allow scales to vary as N was modelled on log-scale
 	facet_wrap(~model_id, scales='free') +
@@ -358,19 +358,34 @@ ggplot(gls_slopes, aes(x=scale, y=std.error)) +
 	xlab('Scale (km2)') +
 	theme_bw()
 
-##	what about the new extent? The zero extents are cells with only two
-##	unique locations (area of a straight line = 0), 
-
-##	min (>0) and max values look to be have lots of influence on these models?
-ggplot(filter(gls_slopes_extent, model_id=='S_gls' & cell_extent>0), aes(x=cell_extent*1e-6, y=slope)) +
-	# allow scales to vary as N was modelled on log-scale
-#	facet_wrap(~model_id, scales='free') +
-	geom_point() +
-	scale_x_log10() +
-	geom_hline(yintercept=0, lty=2) +
-	# gam to see if we are likely to recover hump-shaped prediction?
-	stat_smooth(method='gam', se=F, formula = y ~ s(x, bs='cr', k=4)) +
-	# or 2nd-order polynomial on 25% and 75% quartiles (as per one of Patrick's other plots)... 
-	stat_quantile(formula = y ~ poly(x, 2), lty=2, quantiles=c(0.25, 0.5, 0.75)) +
-	xlab('Scale (km2)') +
+##	what about space
+ggplot(filter(gls_slopes_extent, model_id=='S_gls')) +
+	geom_point(aes(x=cell_x, y=cell_y, size=slope/std.error, colour=slope)) +
+	scale_colour_gradient2(low='red', mid='grey', high='blue', midpoint=0) +
+#	stat_smooth(method='gam', se=F, formula = y ~ s(x, bs='cr', k=4)) +
+	xlab('Longitude') +
+	ylab('Latitude') +
 	theme_bw()
+	
+##======================================================================
+##	need one distance matrix (that has all of the scales combined) for an 
+##	analysis that incorporates spatial autocorrelation.
+head(gls_slopes_extent)
+
+##	get the unique locations (with a reference name)
+cell_location <- gls_slopes_extent %>%
+	distinct(res_cell, cell_x, cell_y)
+	
+##	initialise a matrix
+distMat <- matrix(data = 0, nrow = nrow(cell_location), ncol = nrow(cell_location))	
+
+##	calculate lower triangle of distance matrix
+for(i in 2:nrow(cell_location)){
+	# i is the reference cell from which the distance to the other (j) cells is calculated
+	j = i-1
+	distMat[i, 1:j] = spDistsN1(cbind(cell_location$cell_x[1:j], cell_location$cell_y[1:j]),
+		cbind(cell_location$cell_x[i], cell_location$cell_y[i]), longlat=TRUE)
+}
+
+##	make is symmetric
+distMat <- distMat + t(distMat)
