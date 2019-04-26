@@ -2,4 +2,4 @@ This repository contains code and data necessary to replicate simulation models 
 
 Jonathan M. Chase  Brian J. McGill  Patrick L. Thompson  Laura H. Antão  Amanda E. Bates  Shane A. Blowes  Maria Dornelas  Andrew Gonzalez  Anne E. Magurran  Sarah R. Supp  Marten Winter  Anne D. Bjorkman  Helge Bruelheide  Jarrett E. K. Byrnes  Juliano Sarmento Cabral  Robin Elahi  Catalina Gomez Hector M. Guzman  Forest Isbell  Isla H. Myers‐Smith  Holly P. Jones  Jes Hines  Mark Vellend  Conor Waldock  Mary O'Connor
 
-The associated data is also archived on Dryad - doi to come. 
+The associated data is also archived on Dryad - https://doi.org/10.5061/dryad.2jk717g
