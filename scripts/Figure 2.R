@@ -1,8 +1,5 @@
 ### HEADER #####################################################################
-##' @title Figure 2 of Chase et al. Species richness change across spatial scales. Oikos
-##'
-##' @author Patrick Thompson
-##' @contact patrick.thompson@zoology.ubc.ca
+##' @title Figure 2 of Chase et al. Species richness change across spatial scales. Oikos https://doi.org/10.1111/oik.05968
 ##' 
 ##' @date 2018
 ##' 
